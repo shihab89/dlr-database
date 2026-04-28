@@ -373,7 +373,7 @@ const SUPABASE_URL = 'https://rnpgqnfvyuxcjscatwaz.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJucGdxbmZ2eXV4Y2pzY2F0d2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczNDA4MDAsImV4cCI6MjA5MjkxNjgwMH0.WfjU-k0ZCv0AWYP9CQ55CDkK014TQ-JQjpw2sAdMkyg';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let DB = { customers: [] };
+let DB = { customers: [], racks: [] };
 
 async function loadFromSupabase() {
   const { data: customers, error: e1 } = await sb
