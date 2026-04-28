@@ -1205,7 +1205,129 @@ function confirmAction(msg,cb){
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function esc2(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 function v(id){const el=document.getElementById(id);return el?el.value.trim():'';}
+/* ═══════════════════════════════════════════
+   SUPABASE WRITE HELPERS
+═══════════════════════════════════════════ */
+function requireAuth() {
+  if (!isLoggedIn()) {
+    toast('Login required to edit', 'err');
+    return false;
+  }
+  return true;
+}
 
+async function dbInsertCustomer(name) {
+  const { data, error } = await sb.from('customers').insert({ name }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbUpdateCustomer(id, fields) {
+  const { error } = await sb.from('customers').update(fields).eq('id', id);
+  if (error) throw error;
+}
+
+async function dbDeleteCustomer(id) {
+  const { error } = await sb.from('customers').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function dbInsertCircuit(customer_id, circ) {
+  const { data, error } = await sb.from('circuits').insert({
+    customer_id,
+    asset: circ.asset, carrier: circ.carrier, cid: circ.cid,
+    ticket: circ.ticket, status: circ.status,
+    rx: circ.rx, tx: circ.tx
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbUpdateCircuit(id, fields) {
+  const allowed = ['asset','carrier','cid','ticket','status','rx','tx'];
+  const payload = {};
+  for (const k of allowed) if (k in fields) payload[k] = fields[k];
+  const { error } = await sb.from('circuits').update(payload).eq('id', id);
+  if (error) throw error;
+}
+
+async function dbDeleteCircuit(id) {
+  const { error } = await sb.from('circuits').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function dbReplaceCables(circuit_id, cables) {
+  // wipe old, then insert new — simplest "replace cables" approach
+  const { error: e1 } = await sb.from('cables').delete().eq('circuit_id', circuit_id);
+  if (e1) throw e1;
+  if (!cables || !cables.length) return;
+  const rows = cables.map((cb, i) => ({
+    circuit_id,
+    a_endpoint: cb.a, length: cb.len, z_endpoint: cb.z,
+    sort_order: i
+  }));
+  const { error: e2 } = await sb.from('cables').insert(rows);
+  if (e2) throw e2;
+}
+
+/* ═══════════════════════════════════════════
+   WRITE OPERATIONS (replace old saveDB() flow)
+═══════════════════════════════════════════ */
+
+async function toggleDecom(custName, idx) {
+  if (!requireAuth()) return;
+  const cust = DB.customers.find(c => c.name === custName);
+  const circ = cust && cust.circuits[idx];
+  if (!circ) return;
+  const wasDecom = circ.status === 'decom';
+  const newStatus = wasDecom ? 'active' : 'decom';
+
+  toast('Saving…', 'info');
+  try {
+    await dbUpdateCircuit(circ._id, { status: newStatus });
+    circ.status = newStatus;
+    syncPortMap(circ, custName);
+    renderMN();
+    toast(wasDecom ? 'Marked Active ✓' : 'Marked DECOM ✓', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast('Save failed: ' + (e.message || e), 'err');
+  }
+}
+
+async function addCust() {
+  if (!requireAuth()) return;
+  const name = v('mc-n');
+  if (!name) { toast('Name required', 'err'); return; }
+  if (DB.customers.some(c => c.name === name)) { toast('Already exists', 'err'); return; }
+
+  toast('Saving…', 'info');
+  try {
+    const row = await dbInsertCustomer(name);
+    DB.customers.push({ name, _id: row.id, circuits: [] });
+    closeModal();
+    selC = name;
+    render();
+    toast('Customer added ✓', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast('Save failed: ' + (e.message || e), 'err');
+  }
+}
+
+async function editCust(oldName) {
+  if (!requireAuth()) return;
+  const newName = v('mc-n');
+  if (!newName) { toast('Name required', 'err'); return; }
+  if (newName === oldName) { closeModal(); return; }
+  const cust = DB.customers.find(c => c.name === oldName);
+  if (!cust) { toast('Not found', 'err'); return; }
+  if (DB.customers.some(c => c.name === newName)) { toast('Name already used', 'err'); return; }
+
+  toast('Saving…', 'info');
+  try {
+    await dbUpdateCustomer(cust._id, { name: newName });
+    cust.name = newName;
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
