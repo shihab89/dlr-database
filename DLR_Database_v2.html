@@ -370,11 +370,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 <script>
 // Supabase config
 const SUPABASE_URL = 'https://rnpgqnfvyuxcjscatwaz.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJucGdxbmZ2eXV4Y2pzY2F0d2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczNDA4MDAsImV4cCI6MjA5MjkxNjgwMH0.WfjU-k0ZCv0AWYP9CQ55CDkK014TQ-JQjpw2sAdMkyg';
+const SUPABASE_KEY = 'eyJhbGci...your full key...';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// SEED will be populated from Supabase on load
-let SEED = { customers: [] };
+let DB = { customers: [] };
 
 async function loadFromSupabase() {
   const { data: customers, error: e1 } = await sb
@@ -389,8 +388,7 @@ async function loadFromSupabase() {
     .from('cables').select('*').order('sort_order');
   if (e3) { console.error(e3); return; }
 
-  // Reassemble into SEED structure
-  SEED.customers = customers.map(c => ({
+  DB.customers = customers.map(c => ({
     name: c.name,
     _id: c.id,
     circuits: circuits
