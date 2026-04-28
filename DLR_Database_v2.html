@@ -7,6 +7,19 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+/* LOGIN OVERLAY */
+.login-ov{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:700;
+  display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.login-box{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);
+  padding:24px;width:100%;max-width:360px}
+.login-h{font-size:14px;font-weight:600;font-family:var(--sans);margin-bottom:4px;color:var(--text)}
+.login-sub{font-size:10px;color:var(--text3);margin-bottom:18px;font-family:var(--mono)}
+.login-err{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red);
+  padding:7px 10px;border-radius:var(--r);font-size:10px;margin-top:10px;display:none}
+.login-err.show{display:block}
+.user-bdg{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text2);
+  font-family:var(--mono);padding:0 8px}
+.user-bdg .em{color:var(--accent)}
 <style>
 :root{
   --bg:#080c10;--bg1:#0d1219;--bg2:#121920;--bg3:#1a2230;--bg4:#222e3d;
@@ -342,6 +355,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
     <div class="stat"><div class="stat-v" id="h-r">0</div><div class="stat-l">racks</div></div>
     <div class="stat"><div class="stat-v" id="h-cf" style="color:var(--amber)">0</div><div class="stat-l">conflicts</div></div>
   </div>
+  <div class="user-bdg" id="user-bdg"></div>
 </div>
 
 <div class="nav">
@@ -379,7 +393,95 @@ let srch = '';
 let selC = null;
 let selR = null;
 let selCirc = null;
+let currentUser = null;
 
+/* ═══════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════ */
+async function checkAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  currentUser = session?.user || null;
+  renderUserBadge();
+}
+
+function renderUserBadge() {
+  const el = document.getElementById('user-bdg');
+  if (!el) return;
+  if (currentUser) {
+    el.innerHTML = `
+      <span class="em">${esc(currentUser.email)}</span>
+      <button class="btn btn-sm" onclick="doLogout()">Logout</button>
+    `;
+  } else {
+    el.innerHTML = `<button class="btn btn-sm btn-edit" onclick="showLogin()">Login</button>`;
+  }
+}
+
+function showLogin() {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="login-ov" id="login-ov">
+      <div class="login-box">
+        <div class="login-h">Login</div>
+        <div class="login-sub">// authorized users only</div>
+        <div class="fg full">
+          <label class="flbl">Email</label>
+          <input class="finp" id="li-email" type="email" autocomplete="username">
+        </div>
+        <div class="fg full" style="margin-top:8px">
+          <label class="flbl">Password</label>
+          <input class="finp" id="li-pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <div class="login-err" id="li-err"></div>
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+          <button class="mbtn mb-cancel" onclick="closeLogin()">Cancel</button>
+          <button class="mbtn mb-save" onclick="doLogin()">Login</button>
+        </div>
+      </div>
+    </div>
+  `;
+  setTimeout(() => document.getElementById('li-email')?.focus(), 50);
+}
+
+function closeLogin() {
+  document.getElementById('modal-root').innerHTML = '';
+}
+
+async function doLogin() {
+  const email = document.getElementById('li-email').value.trim();
+  const password = document.getElementById('li-pw').value;
+  const errEl = document.getElementById('li-err');
+  errEl.classList.remove('show');
+
+  if (!email || !password) {
+    errEl.textContent = 'Email and password required';
+    errEl.classList.add('show');
+    return;
+  }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    errEl.textContent = error.message || 'Login failed';
+    errEl.classList.add('show');
+    return;
+  }
+
+  currentUser = data.user;
+  closeLogin();
+  renderUserBadge();
+  render(); // re-render so edit buttons appear (once we wire them up)
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+  currentUser = null;
+  renderUserBadge();
+  render();
+}
+
+function isLoggedIn() {
+  return currentUser !== null;
+}
 async function loadFromSupabase() {
   const { data: customers, error: e1 } = await sb
     .from('customers').select('*').order('name');
@@ -1108,6 +1210,7 @@ function v(id){const el=document.getElementById(id);return el?el.value.trim():''
    INIT
 ═══════════════════════════════════════════ */
 (async () => {
+  await checkAuth();
   await loadFromSupabase();
   render();
 })();
