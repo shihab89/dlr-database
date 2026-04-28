@@ -1328,6 +1328,103 @@ async function editCust(oldName) {
   try {
     await dbUpdateCustomer(cust._id, { name: newName });
     cust.name = newName;
+    if (selC === oldName) selC = newName;
+    closeModal();
+    render();
+    toast('Renamed ✓', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast('Save failed: ' + (e.message || e), 'err');
+  }
+}
+
+async function deleteCust(name) {
+  if (!requireAuth()) return;
+  const cust = DB.customers.find(c => c.name === name);
+  if (!cust) return;
+  confirmAction(`Delete "${name}" and all ${cust.circuits.length} circuits?`, async () => {
+    toast('Deleting…', 'info');
+    try {
+      await dbDeleteCustomer(cust._id);
+      DB.customers = DB.customers.filter(c => c.name !== name);
+      selC = null; selCirc = null;
+      render();
+      toast('Deleted ✓', 'ok');
+    } catch (e) {
+      console.error(e);
+      toast('Delete failed: ' + (e.message || e), 'err');
+    }
+  });
+}
+
+async function deleteDLR(custName, idx) {
+  if (!requireAuth()) return;
+  const cust = DB.customers.find(c => c.name === custName);
+  if (!cust || !cust.circuits[idx]) return;
+  const circ = cust.circuits[idx];
+  confirmAction(`Delete DLR for A#${circ.asset}?`, async () => {
+    toast('Deleting…', 'info');
+    try {
+      await dbDeleteCircuit(circ._id);
+      cust.circuits.splice(idx, 1);
+      selCirc = null;
+      renderMN();
+      toast('DLR deleted ✓', 'ok');
+    } catch (e) {
+      console.error(e);
+      toast('Delete failed: ' + (e.message || e), 'err');
+    }
+  });
+}
+
+async function saveDLR(custName, idx) {
+  if (!requireAuth()) return;
+  const asset = v('m-a');
+  if (!asset) { toast('Asset # required', 'err'); return; }
+  const cust = DB.customers.find(c => c.name === custName);
+  if (!cust) { toast('Customer not found', 'err'); return; }
+
+  const circData = {
+    asset,
+    carrier: v('m-ca'),
+    ticket: v('m-t'),
+    cid: v('m-cid') || 'N/A',
+    status: document.getElementById('m-s').value,
+    rx: v('m-rx'),
+    tx: v('m-tx'),
+    cables: getCables()
+  };
+
+  toast('Saving…', 'info');
+  try {
+    let circId;
+    if (idx === null) {
+      // insert new circuit
+      const row = await dbInsertCircuit(cust._id, circData);
+      circId = row.id;
+      const newCirc = { ...circData, _id: circId };
+      cust.circuits.push(newCirc);
+      selCirc = cust.circuits.length - 1;
+    } else {
+      // update existing circuit
+      const existing = cust.circuits[idx];
+      circId = existing._id;
+      await dbUpdateCircuit(circId, circData);
+      cust.circuits[idx] = { ...circData, _id: circId };
+      selCirc = idx;
+    }
+    // replace cables for this circuit
+    await dbReplaceCables(circId, circData.cables);
+
+    syncPortMap(cust.circuits[selCirc], custName);
+    closeModal();
+    renderMN();
+    toast(idx === null ? 'DLR added ✓' : 'DLR updated ✓', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast('Save failed: ' + (e.message || e), 'err');
+  }
+}
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
