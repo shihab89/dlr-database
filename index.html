@@ -409,12 +409,16 @@ function renderUserBadge() {
   const el = document.getElementById('user-bdg');
   if (!el) return;
   if (currentUser) {
+    const roleTag = userRole === 'admin' ? '<span style="color:var(--accent);font-size:9px;margin-left:4px">[admin]</span>' : '';
     el.innerHTML = `
-      <span class="em">${esc(currentUser.email)}</span>
+      <span class="em">${esc(currentUser.email)}</span>${roleTag}
       <button class="btn btn-sm" onclick="doLogout()">Logout</button>
     `;
   } else {
-    el.innerHTML = `<button class="btn btn-sm btn-edit" onclick="showLogin()">Login</button>`;
+    el.innerHTML = `
+      <span style="color:var(--amber);font-size:10px;margin-right:8px">DEMO MODE</span>
+      <button class="btn btn-sm btn-edit" onclick="showLogin()">Login</button>
+    `;
   }
 }
 
@@ -468,21 +472,39 @@ async function doLogin() {
   }
 
   currentUser = data.user;
+  await loadUserRole();
   closeLogin();
   renderUserBadge();
-  render(); // re-render so edit buttons appear (once we wire them up)
+  await loadFromSupabase(); // re-fetch to get full data now that we're logged in
+  render();
 }
 
 async function doLogout() {
   await sb.auth.signOut();
   currentUser = null;
+  userRole = 'viewer';
   renderUserBadge();
+  await loadFromSupabase(); // re-fetch — now restricted to demo only
   render();
 }
 
 function isLoggedIn() {
   return currentUser !== null;
 }
+let userRole = 'viewer'; // default
+
+async function loadUserRole() {
+  if (!currentUser) { userRole = 'viewer'; return; }
+  const { data, error } = await sb.from('profiles')
+    .select('role').eq('id', currentUser.id).single();
+  if (error) { console.error('role fetch failed:', error); userRole = 'viewer'; return; }
+  userRole = data.role;
+}
+
+function isAdmin() {
+  return currentUser !== null && userRole === 'admin';
+}
+
 async function loadFromSupabase() {
   const { data: customers, error: e1 } = await sb
     .from('customers').select('*').order('name');
@@ -499,6 +521,7 @@ async function loadFromSupabase() {
   DB.customers = customers.map(c => ({
     name: c.name,
     _id: c.id,
+    is_demo: c.is_demo,
     circuits: circuits
       .filter(ci => ci.customer_id === c.id)
       .map(ci => ({
@@ -1214,6 +1237,10 @@ function requireAuth() {
     toast('Login required to edit', 'err');
     return false;
   }
+  if (!isAdmin()) {
+    toast('Admin access required to edit', 'err');
+    return false;
+  }
   return true;
 }
 
@@ -1431,6 +1458,7 @@ async function saveDLR(custName, idx) {
 ═══════════════════════════════════════════ */
 (async () => {
   await checkAuth();
+  await loadUserRole();
   await loadFromSupabase();
   render();
 })();
