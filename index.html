@@ -192,21 +192,41 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
   display:flex;flex-direction:column;justify-content:center;min-width:70px;
   transition:all .1s;position:relative;user-select:none}
 .pc:last-child{border-right:none}
-.pc:hover{filter:brightness(1.15)}
+.pc:hover{filter:brightness(.95)}
 .pc.p-empty{background:var(--bg2)}
-.pc.p-active{background:#091520}
-.pc.p-conflict{background:#1a1200}
-.pc.p-decom{background:#100808;opacity:.6}
-.pc.p-dp{background:#100f05;opacity:.75}
-.pc.p-sel{outline:1px solid var(--accent);outline-offset:-1px;filter:brightness(1.2)}
+.pc.p-active{background:var(--green-bg)}
+.pc.p-conflict{background:var(--amber-bg)}
+.pc.p-decom{background:var(--bg3);opacity:.7}
+.pc.p-dp{background:var(--amber-bg);opacity:.7}
+.pc.p-sel{outline:2px solid var(--accent);outline-offset:-2px}
 .p-num{font-size:8px;color:var(--text3);margin-bottom:1px;font-family:var(--mono)}
 .p-cust{font-size:9px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;max-width:62px;font-family:var(--sans)}
-.p-asset{font-size:8px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:62px;font-family:var(--sans);font-weight:600}
+.p-asset{font-size:8px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;max-width:62px;font-family:var(--mono)}
 .p-empty-txt{font-size:9px;color:var(--border3)}
 .cf-dot{width:5px;height:5px;background:var(--amber);border-radius:50%;
   position:absolute;top:3px;right:3px}
+
+/* U-BASED RACK LAYOUT */
+.rack-chassis{background:var(--bg1);border:1px solid var(--border2);border-radius:var(--r2);
+  overflow:hidden;margin-top:14px}
+.u-row{display:flex;border-bottom:1px solid var(--border);min-height:38px;align-items:stretch}
+.u-row:last-child{border-bottom:none}
+.u-row.u-has-cf{background:var(--amber-bg)}
+.u-row.u-empty{background:var(--bg2);opacity:.55}
+.u-lbl{width:48px;min-width:48px;background:var(--bg3);border-right:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text2);
+  font-weight:700;letter-spacing:.5px;font-family:var(--mono)}
+.u-content{flex:1;display:flex;flex-direction:column;min-width:0}
+.u-empty-content{padding:8px 10px;color:var(--text3);font-size:9px;font-family:var(--mono);
+  display:flex;align-items:center;font-style:italic}
+.u-slot{display:flex;align-items:stretch;border-bottom:1px dashed var(--border);min-width:0}
+.u-slot:last-child{border-bottom:none}
+.u-slot-lbl{width:38px;min-width:38px;background:var(--bg2);border-right:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--text3);
+  font-weight:600;font-family:var(--mono)}
+.u-ports{display:flex;flex:1;flex-wrap:wrap;min-width:0;overflow-x:auto}
 
 /* PORT DETAIL DROP */
 .pdrop{background:var(--bg2);border:1px solid var(--accent);border-radius:var(--r2);
@@ -564,6 +584,8 @@ async function loadFromSupabase() {
           .map(cb => ({ a: cb.a_endpoint, len: cb.length, z: cb.z_endpoint }))
       }))
   }));
+
+  rebuildRacksFromCables();
 }
 /* ═══════════════════════════════════════════
    STATS & RENDER
@@ -633,17 +655,20 @@ function renderSB(){
       +`<div style="height:60px"></div>`;
   } else {
     const q=srch.toLowerCase();
-    const filt=DB.racks.filter(r=>r.id.toLowerCase().includes(q)||r.ru.toLowerCase().includes(q)||r.room.toLowerCase().includes(q));
+    const filt=DB.racks.filter(r=>r.id.toLowerCase().includes(q)||(r.room||'').toLowerCase().includes(q)||(r.row||'').toLowerCase().includes(q)||(r.rack||'').toLowerCase().includes(q));
     const groups={};
     filt.forEach(r=>{const k=r.room||'Other';(groups[k]=groups[k]||[]).push(r);});
     list.innerHTML=Object.keys(groups).sort().map(k=>`
       <div class="s-group">${k}</div>
-      ${groups[k].sort((a,b)=>a.id.localeCompare(b.id)).map(r=>`
-        <div class="ri${selR===r.id?' on':''}" onclick="pickRack('${esc(r.id)}')">
-          <div class="ri-id">${r.ru} <span style="font-size:9px;color:var(--text3)">${r.row}·${r.rack}</span></div>
-          <div class="ri-sub">${r.id}</div>
+      ${groups[k].sort((a,b)=>a.id.localeCompare(b.id)).map(r=>{
+        const totalPorts=r.units.reduce((a,u)=>a+u.slots.reduce((b,s)=>b+s.ports.length,0),0);
+        const occupiedPorts=r.units.reduce((a,u)=>a+u.slots.reduce((b,s)=>b+s.ports.filter(p=>p.status!=='empty').length,0),0);
+        return`<div class="ri${selR===r.id?' on':''}" onclick="pickRack('${esc(r.id)}')">
+          <div class="ri-id">${esc(r.row)}·${esc(r.rack)} <span style="font-size:9px;color:var(--text3)">${r.units.length}U</span></div>
+          <div class="ri-sub">${esc(r.id)}</div>
+          <div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:2px">${occupiedPorts}/${totalPorts} ports</div>
           ${r.conflicts>0?`<div class="ri-cf">⚠ ${r.conflicts} conflict${r.conflicts!==1?'s':''}</div>`:''}
-        </div>`).join('')}`).join('')
+        </div>`;}).join('')}`).join('')
       +`<div style="height:60px"></div>`;
   }
 }
@@ -763,36 +788,70 @@ function renderDLR(mn,cust,circ,idx){
    RACK VIEW
 ═══════════════════════════════════════════ */
 function renderRack(mn,rack){
-  const slots=rack.slots||[];
-  const chassis=slots.length?`<div class="chassis"><div class="chassis-inner">`+slots.map(sl=>`
-    <div class="s-row">
-      <div class="s-lbl">${esc(sl.slot)||'—'}</div>
-      <div class="s-ports">${(sl.ports||[]).map(pt=>{
-        const isEmpty=pt.status==='empty'||!pt.primary;
-        const isSel=selP===sl.slot+'|'+pt.port;
-        let cls='p-'+( isSel?'sel': isEmpty?'empty': pt.status==='conflict'?'conflict':
-                       pt.status==='decom'?'decom':pt.status==='decom-pending'?'dp':'active');
-        if(isSel) cls+=' p-sel';
-        return`<div class="pc ${cls}" onclick="pickPort('${esc2(sl.slot)}','${esc2(pt.port)}')" title="${pt.primary?esc(pt.primary.customer)+' A#'+esc(pt.primary.asset):'Empty'}">
-          ${pt.status==='conflict'?'<div class="cf-dot"></div>':''}
-          <div class="p-num">${esc(pt.port)}</div>
-          ${isEmpty?`<div class="p-empty-txt">—</div>`:
-            `<div class="p-cust">${esc(pt.primary.customer)}</div>
-             <div class="p-asset">A#${esc(pt.primary.asset)}</div>`}
-        </div>`;}).join('')}</div>
-    </div>`).join('')+`</div></div>`:`<div style="padding:20px;color:var(--text3);font-size:11px">No slots configured. Add one below.</div>`;
+  const units=rack.units||[];
 
+  // Determine the U-range to show
+  // Show from U1 to the highest U (so users see empty positions and the rack physical scale)
+  const uNums=units.map(u=>parseInt(u.u.slice(1))||0).filter(n=>n>0);
+  const maxU=uNums.length?Math.max(...uNums):0;
+  const minU=1;
+
+  // Build a list of all U positions (with empty placeholders for missing ones)
+  const allUs=[];
+  for(let n=minU;n<=maxU;n++){
+    const existing=units.find(u=>parseInt(u.u.slice(1))===n);
+    allUs.push(existing||{u:'U'+n,slots:[],conflicts:0,_empty:true});
+  }
+  // Reverse so highest U appears at top of HTML (since CSS display order = top first)
+  // Wait — user wants U1 at BOTTOM, U_max at TOP. So in HTML order, top → bottom = highU → lowU.
+  allUs.reverse();
+
+  const chassis=allUs.length?`<div class="rack-chassis">`+allUs.map(unit=>{
+    const isEmpty=unit._empty||unit.slots.length===0;
+    if(isEmpty){
+      return`<div class="u-row u-empty" data-u="${esc(unit.u)}">
+        <div class="u-lbl">${esc(unit.u)}</div>
+        <div class="u-content u-empty-content">— empty —</div>
+      </div>`;
+    }
+    const slotHtml=unit.slots.map(sl=>`
+      <div class="u-slot">
+        ${sl.slot!=='DIRECT'?`<div class="u-slot-lbl">${esc(sl.slot)}</div>`:''}
+        <div class="u-ports">${sl.ports.map(pt=>{
+          const ptIsEmpty=pt.status==='empty'||!pt.primary;
+          const isSel=selP===unit.u+'|'+sl.slot+'|'+pt.port;
+          let cls='p-'+(isSel?'sel':ptIsEmpty?'empty':pt.status==='conflict'?'conflict':
+                       pt.status==='decom'?'decom':pt.status==='decom-pending'?'dp':'active');
+          if(isSel) cls+=' p-sel';
+          return`<div class="pc ${cls}" onclick="pickPort('${esc2(unit.u)}','${esc2(sl.slot)}','${esc2(pt.port)}')" title="${pt.primary?esc(pt.primary.customer)+' A#'+esc(pt.primary.asset):'Empty'}">
+            ${pt.status==='conflict'?'<div class="cf-dot"></div>':''}
+            <div class="p-num">${esc(pt.port)}</div>
+            ${ptIsEmpty?`<div class="p-empty-txt">—</div>`:
+              `<div class="p-cust">${esc(pt.primary.customer)}</div>
+               <div class="p-asset">A#${esc(pt.primary.asset)}</div>`}
+          </div>`;
+        }).join('')}</div>
+      </div>`).join('');
+    return`<div class="u-row${unit.conflicts>0?' u-has-cf':''}" data-u="${esc(unit.u)}">
+      <div class="u-lbl">${esc(unit.u)}${unit.conflicts>0?` <span style="color:var(--amber);font-size:9px">⚠</span>`:''}</div>
+      <div class="u-content">${slotHtml}</div>
+    </div>`;
+  }).join('')+`</div>`:`<div style="padding:20px;color:var(--text3);font-size:11px">No U-positions configured. Edit a circuit's cable path to populate.</div>`;
+
+  // Port detail panel
   let pdHtml='';
   if(selP){
-    const [slotN,portN]=selP.split('|');
-    const sl=slots.find(s=>s.slot===slotN);
+    const parts=selP.split('|');
+    const uN=parts[0],slotN=parts[1],portN=parts[2];
+    const unit=units.find(x=>x.u===uN);
+    const sl=unit&&unit.slots.find(s=>s.slot===slotN);
     const pt=sl&&sl.ports.find(p=>p.port===portN);
     if(pt){
       const prim=pt.primary;
       const isConf=pt.status==='conflict';
       pdHtml=`<div class="pdrop">
         <div class="pd-hdr">
-          <div class="pd-id">${esc(rack.id)} · ${esc(slotN)} · ${esc(portN)}</div>
+          <div class="pd-id">${esc(rack.id)} · ${esc(uN)} · ${esc(slotN)} · ${esc(portN)}</div>
           <button class="close-x" onclick="selP=null;renderMN()">✕</button>
         </div>
         ${prim?`<div class="info-g">
@@ -808,10 +867,7 @@ function renderRack(mn,rack){
         <div class="div"></div>
         <div class="btns">
           <button class="btn btn-edit" onclick="viewInCustomer('${esc2(prim.customer)}','${esc2(prim.asset)}')">↗ View Full DLR</button>
-          <button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>
-          <button class="btn btn-del btn-sm" onclick="clearPort('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}','${esc2(prim.customer)}','${esc2(prim.asset)}')">Clear Port</button>
-        </div>`:`<div style="color:var(--text3);font-size:11px;margin-bottom:10px">Empty — not assigned</div>
-        <button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>`}
+        </div>`:`<div style="color:var(--text3);font-size:11px;margin-bottom:10px">Empty — not assigned</div>`}
       </div>`;
     }
   }
@@ -819,12 +875,8 @@ function renderRack(mn,rack){
   mn.innerHTML=mobBackHTML()+`<div class="rv">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div>
-        <div class="r-title">${esc(rack.id)}</div>
-        <div class="r-sub">${esc(rack.room)} · ${esc(rack.row)} · ${esc(rack.rack)} · ${esc(rack.ru)}</div>
-      </div>
-      <div class="btns">
-        <button class="btn btn-add btn-sm" onclick="showAddSlotModal('${esc2(rack.id)}')">+ Add Slot</button>
-        <button class="btn btn-del btn-sm" onclick="deleteRack('${esc2(rack.id)}')">Delete Rack</button>
+        <div class="r-title">${esc(rack.row)}·${esc(rack.rack)}</div>
+        <div class="r-sub">${esc(rack.id)} · ${esc(rack.room)} · ${rack.units.length} U-positions</div>
       </div>
     </div>
     ${chassis}
@@ -844,8 +896,8 @@ function renderRack(mn,rack){
 ═══════════════════════════════════════════ */
 function pickCustomer(name){selC=name;selCirc=null;document.body.classList.add('show-detail');renderSB();renderMN();closeSB();}
 function pickRack(id){selR=id;selP=null;document.body.classList.add('show-detail');renderSB();renderMN();closeSB();}
-function pickPort(slot,port){
-  const key=slot+'|'+port;
+function pickPort(u,slot,port){
+  const key=u+'|'+slot+'|'+port;
   selP=selP===key?null:key;
   renderMN();
 }
@@ -1196,21 +1248,49 @@ function syncPortMap(circ,custName){
       const rwM=loc.match(/\.(L\d+)\./i);
       const rkM=loc.match(/\.(R[\w\d]+)\./i);
       if(!uM||!pM||!rmM)return;
-      const rackId=`DFW3.F1.${rmM[1]}.${rwM?rwM[1]:'L1'}.${rkM?rkM[1]:'R1'}.${uM[1]}`;
+      // Rack ID is everything BEFORE the U
+      const rackId=`DFW3.F1.${rmM[1]}.${rwM?rwM[1]:'L1'}.${rkM?rkM[1]:'R1'}`;
+      const u=uM[1];
       const slot=sM?sM[1]:'DIRECT';
       const port='P'+pM[1];
       let rack=DB.racks.find(r=>r.id===rackId);
-      if(!rack){rack={id:rackId,room:rmM[1],row:rwM?rwM[1]:'L1',rack:rkM?rkM[1]:'R1',ru:uM[1],slots:[],total_ports:0,conflicts:0};DB.racks.push(rack);}
-      let sl=rack.slots.find(s=>s.slot===slot);
-      if(!sl){sl={slot,ports:[]};rack.slots.push(sl);}
+      if(!rack){
+        rack={id:rackId,room:rmM[1],row:rwM?rwM[1]:'L1',rack:rkM?rkM[1]:'R1',
+              units:[],total_ports:0,conflicts:0};
+        DB.racks.push(rack);
+      }
+      let unit=rack.units.find(x=>x.u===u);
+      if(!unit){unit={u,slots:[],conflicts:0};rack.units.push(unit);}
+      let sl=unit.slots.find(s=>s.slot===slot);
+      if(!sl){sl={slot,ports:[]};unit.slots.push(sl);}
       let pt=sl.ports.find(p=>p.port===port);
-      if(!pt){pt={port,slot,entries:[],status:'empty',primary:null};sl.ports.push(pt);}
+      if(!pt){pt={port,slot,u,entries:[],status:'empty',primary:null};sl.ports.push(pt);}
       const existing=pt.entries.findIndex(e=>e.customer===custName&&e.asset===circ.asset);
       const entry={customer:custName,asset:circ.asset,carrier:circ.carrier,ticket:circ.ticket,status:circ.status,cid:circ.cid};
       if(existing>=0) pt.entries[existing]=entry;
       else pt.entries.push(entry);
       refreshPortStatus(pt);
-      rack.conflicts=rack.slots.reduce((a,s)=>a+s.ports.filter(p=>p.status==='conflict').length,0);
+      // Recompute conflicts: per-unit and per-rack
+      unit.conflicts=unit.slots.reduce((a,s)=>a+s.ports.filter(p=>p.status==='conflict').length,0);
+      rack.conflicts=rack.units.reduce((a,u)=>a+u.conflicts,0);
+    });
+  });
+}
+
+function rebuildRacksFromCables(){
+  DB.racks=[];
+  DB.customers.forEach(cust=>{
+    cust.circuits.forEach(circ=>{
+      syncPortMap(circ,cust.name);
+    });
+  });
+  // Sort racks for stable display
+  DB.racks.sort((a,b)=>a.id.localeCompare(b.id));
+  // Sort units by U number ascending (so display can render top-down or bottom-up easily)
+  DB.racks.forEach(r=>{
+    r.units.sort((a,b)=>{
+      const na=parseInt(a.u.slice(1))||0, nb=parseInt(b.u.slice(1))||0;
+      return na-nb;
     });
   });
 }
