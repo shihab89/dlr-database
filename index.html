@@ -367,7 +367,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 <div class="app">
   <div class="sb" id="sb">
     <div class="srch-wrap">
-      <input class="srch" id="srch" type="text" placeholder="Search..." oninput="onSearch(this.value)">
+      <input class="srch" id="srch" type="text" placeholder="Search customer, asset#, ticket, rack, port..." oninput="onSearch(this.value)">
       <button class="btn btn-add btn-sm" id="sb-add-btn" onclick="handleSBAdd()">+ Add</button>
     </div>
     <div class="sb-scroll" id="sb-list"></div>
@@ -539,6 +539,21 @@ async function loadFromSupabase() {
           .map(cb => ({ a: cb.a_endpoint, len: cb.length, z: cb.z_endpoint }))
       }))
   }));
+
+  // Auto-rebuild racks from cable endpoints
+  rebuildRacksFromCables();
+}
+
+function rebuildRacksFromCables() {
+  DB.racks = [];
+  DB.customers.forEach(cust => {
+    cust.circuits.forEach(circ => {
+      // syncPortMap parses cable endpoints and populates DB.racks
+      syncPortMap(circ, cust.name);
+    });
+  });
+  // Sort racks for stable display
+  DB.racks.sort((a, b) => a.id.localeCompare(b.id));
 }
 /* ═══════════════════════════════════════════
    STATS & RENDER
@@ -586,31 +601,95 @@ function onSearch(v){srch=v;renderSB();}
 /* ═══════════════════════════════════════════
    SIDEBAR
 ═══════════════════════════════════════════ */
+function searchDLRs(q){
+  // Returns matching circuits with metadata about why they matched
+  if(!q||q.length<2) return [];
+  const ql=q.toLowerCase();
+  const results=[];
+  DB.customers.forEach(cust=>{
+    cust.circuits.forEach((circ,i)=>{
+      const matches=[];
+      // Exact-ish field matches
+      if(circ.asset&&circ.asset.toLowerCase().includes(ql)) matches.push('asset');
+      if(circ.carrier&&circ.carrier.toLowerCase().includes(ql)) matches.push('carrier');
+      if(circ.ticket&&circ.ticket.toLowerCase().includes(ql)) matches.push('ticket');
+      if(circ.cid&&circ.cid!=='N/A'&&circ.cid.toLowerCase().includes(ql)) matches.push('cid');
+      // Cable endpoint matches (rack, slot, port, room)
+      let cableHit=null;
+      if(circ.cables){
+        for(const cab of circ.cables){
+          if(cab.a&&cab.a.toLowerCase().includes(ql)){cableHit=cab.a;break;}
+          if(cab.z&&cab.z.toLowerCase().includes(ql)){cableHit=cab.z;break;}
+        }
+      }
+      if(cableHit) matches.push('cable');
+      if(matches.length){
+        results.push({customer:cust.name,circuit:circ,idx:i,matches,cableHit});
+      }
+    });
+  });
+  return results;
+}
+
 function renderSB(){
   const list=document.getElementById('sb-list');
+  const q=srch.toLowerCase();
+
   if(view==='customer'){
-    const q=srch.toLowerCase();
-    const filt=DB.customers.filter(c=>c.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
-    // Group by first letter
-    const groups={};
-    filt.forEach(c=>{
-      const k=c.name[0].toUpperCase();
-      (groups[k]=groups[k]||[]).push(c);
-    });
-    list.innerHTML=Object.keys(groups).sort().map(k=>`
-      <div class="s-group">${k}</div>
-      ${groups[k].map(c=>{
-        const act=c.circuits.filter(x=>x.status==='active').length;
-        const hasCf=false;
-        const allDc=c.circuits.every(x=>x.status==='decom');
-        return`<div class="ci${selC===c.name?' on':''}" onclick="pickCustomer('${esc(c.name)}')">
-          <div class="ci-dot" style="background:${allDc?'var(--text3)':hasCf?'var(--amber)':'var(--green)'}"></div>
-          <div class="ci-name" title="${esc(c.name)}">${esc(c.name)}${c.is_demo?' <span style="color:var(--amber);font-size:8px;font-weight:600">[DEMO]</span>':''}</div>
-          <div class="ci-ct">${act}</div>
-        </div>`;}).join('')}`).join('')
-      +`<div style="height:60px"></div>`;
+    // Search DLRs whenever query is 2+ chars
+    const dlrResults=q.length>=2?searchDLRs(srch):[];
+    // Filter customers by name match
+    const custFilt=DB.customers.filter(c=>c.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+
+    let html='';
+
+    // DLR results section (only when search has DLR-only matches not covered by customer name)
+    if(dlrResults.length){
+      html+=`<div class="s-group" style="color:var(--accent);border-color:var(--accent)">DLR Matches (${dlrResults.length})</div>`;
+      html+=dlrResults.slice(0,100).map(r=>{
+        const c=r.circuit;
+        const isDc=c.status==='decom';
+        const tagText=r.matches.includes('cable')&&r.cableHit?
+          r.cableHit.length>32?'…'+r.cableHit.slice(-32):r.cableHit:
+          r.matches.join('·');
+        return`<div class="ci" onclick="jumpToDLR('${esc2(r.customer)}',${r.idx})" style="cursor:pointer">
+          <div class="ci-dot" style="background:${isDc?'var(--text3)':'var(--green)'}"></div>
+          <div style="flex:1;min-width:0">
+            <div class="ci-name" title="${esc(r.customer)} A#${esc(c.asset)}">${esc(r.customer)} <span style="color:var(--text3);font-size:9px">·</span> A#${esc(c.asset)}</div>
+            <div style="font-size:9px;color:var(--text3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tagText)}${isDc?' [decom]':''}</div>
+          </div>
+        </div>`;
+      }).join('');
+      if(dlrResults.length>100){
+        html+=`<div style="padding:8px 12px;color:var(--text3);font-size:9px;font-family:var(--mono)">… and ${dlrResults.length-100} more. Refine search.</div>`;
+      }
+    }
+
+    // Customer list (grouped by letter)
+    if(custFilt.length){
+      const groups={};
+      custFilt.forEach(c=>{
+        const k=c.name[0].toUpperCase();
+        (groups[k]=groups[k]||[]).push(c);
+      });
+      html+=Object.keys(groups).sort().map(k=>`
+        <div class="s-group">${k}</div>
+        ${groups[k].map(c=>{
+          const act=c.circuits.filter(x=>x.status==='active').length;
+          const allDc=c.circuits.length>0&&c.circuits.every(x=>x.status==='decom');
+          return`<div class="ci${selC===c.name?' on':''}" onclick="pickCustomer('${esc(c.name)}')">
+            <div class="ci-dot" style="background:${allDc?'var(--text3)':'var(--green)'}"></div>
+            <div class="ci-name" title="${esc(c.name)}">${esc(c.name)}${c.is_demo?' <span style="color:var(--amber);font-size:8px;font-weight:600">[DEMO]</span>':''}</div>
+            <div class="ci-ct">${act}</div>
+          </div>`;}).join('')}`).join('');
+    }
+
+    if(!html){
+      html=`<div style="padding:20px;text-align:center;color:var(--text3);font-size:10px;font-family:var(--mono)">No matches.<br><span style="font-size:9px">Try asset #, ticket, carrier, rack, or port.</span></div>`;
+    }
+
+    list.innerHTML=html+`<div style="height:60px"></div>`;
   } else {
-    const q=srch.toLowerCase();
     const filt=DB.racks.filter(r=>r.id.toLowerCase().includes(q)||r.ru.toLowerCase().includes(q)||r.room.toLowerCase().includes(q));
     const groups={};
     filt.forEach(r=>{const k=r.room||'Other';(groups[k]=groups[k]||[]).push(r);});
@@ -624,6 +703,14 @@ function renderSB(){
         </div>`).join('')}`).join('')
       +`<div style="height:60px"></div>`;
   }
+}
+
+function jumpToDLR(custName,idx){
+  selC=custName;
+  selCirc=idx;
+  renderSB();
+  renderMN();
+  closeSB();
 }
 
 /* ═══════════════════════════════════════════
@@ -781,10 +868,10 @@ function renderRack(mn,rack){
         <div class="div"></div>
         <div class="btns">
           <button class="btn btn-edit" onclick="viewInCustomer('${esc2(prim.customer)}','${esc2(prim.asset)}')">↗ View Full DLR</button>
-          <button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>
-          <button class="btn btn-del btn-sm" onclick="clearPort('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}','${esc2(prim.customer)}','${esc2(prim.asset)}')">Clear Port</button>
+          ${isAdmin()?`<button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>
+          <button class="btn btn-del btn-sm" onclick="clearPort('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}','${esc2(prim.customer)}','${esc2(prim.asset)}')">Clear Port</button>`:''}
         </div>`:`<div style="color:var(--text3);font-size:11px;margin-bottom:10px">Empty — not assigned</div>
-        <button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>`}
+        ${isAdmin()?`<button class="btn btn-add" onclick="showAssignPortModal('${esc2(rack.id)}','${esc2(slotN)}','${esc2(portN)}')">+ Assign Circuit</button>`:''}`}
       </div>`;
     }
   }
@@ -796,8 +883,8 @@ function renderRack(mn,rack){
         <div class="r-sub">${esc(rack.room)} · ${esc(rack.row)} · ${esc(rack.rack)} · ${esc(rack.ru)}</div>
       </div>
       <div class="btns">
-        <button class="btn btn-add btn-sm" onclick="showAddSlotModal('${esc2(rack.id)}')">+ Add Slot</button>
-        <button class="btn btn-del btn-sm" onclick="deleteRack('${esc2(rack.id)}')">Delete Rack</button>
+        ${isAdmin()?`<button class="btn btn-add btn-sm" onclick="showAddSlotModal('${esc2(rack.id)}')">+ Add Slot</button>
+        <button class="btn btn-del btn-sm" onclick="deleteRack('${esc2(rack.id)}')">Delete Rack</button>`:''}
       </div>
     </div>
     ${chassis}
@@ -1243,6 +1330,14 @@ function v(id){const el=document.getElementById(id);return el?el.value.trim():''
 /* ═══════════════════════════════════════════
    SUPABASE WRITE HELPERS
 ═══════════════════════════════════════════ */
+// Stub for legacy rack write functions — racks are auto-rebuilt from cables
+// rather than persisted. Rack edits won't survive a refresh.
+function saveDB() {
+  if (isLoggedIn()) {
+    toast('Note: rack edits are not yet persisted', 'info');
+  }
+}
+
 function requireAuth() {
   if (!isLoggedIn()) {
     toast('Login required to edit', 'err');
