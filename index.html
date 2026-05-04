@@ -394,6 +394,7 @@ let srch = '';
 let selC = null;
 let selR = null;
 let selCirc = null;
+let selP = null;
 let currentUser = null;
 
 /* ═══════════════════════════════════════════
@@ -548,7 +549,11 @@ function stats(){
   document.getElementById('h-r').textContent=DB.racks.length;
   document.getElementById('h-cf').textContent=DB.racks.reduce((a,r)=>a+(r.conflicts||0),0);
 }
-function render(){stats();renderSB();renderMN();}
+function render(){updateAddBtnVisibility();stats();renderSB();renderMN();}
+function updateAddBtnVisibility(){
+  const btn=document.getElementById('sb-add-btn');
+  if(btn) btn.style.display=isAdmin()?'':'none';
+}
 
 /* ═══════════════════════════════════════════
    VIEW SWITCH
@@ -600,7 +605,7 @@ function renderSB(){
         const allDc=c.circuits.every(x=>x.status==='decom');
         return`<div class="ci${selC===c.name?' on':''}" onclick="pickCustomer('${esc(c.name)}')">
           <div class="ci-dot" style="background:${allDc?'var(--text3)':hasCf?'var(--amber)':'var(--green)'}"></div>
-          <div class="ci-name" title="${esc(c.name)}">${esc(c.name)}</div>
+          <div class="ci-name" title="${esc(c.name)}">${esc(c.name)}${c.is_demo?' <span style="color:var(--amber);font-size:8px;font-weight:600">[DEMO]</span>':''}</div>
           <div class="ci-ct">${act}</div>
         </div>`;}).join('')}`).join('')
       +`<div style="height:60px"></div>`;
@@ -648,15 +653,19 @@ function renderCustMain(mn,cust){
   const decom=cust.circuits.map((c,i)=>({...c,_i:i})).filter(c=>c.status==='decom');
   const carriers=[...new Set(cust.circuits.map(c=>c.carrier).filter(Boolean))];
   mn.innerHTML=`
+    ${!isLoggedIn()?`<div style="background:var(--amber-bg);border-bottom:1px solid var(--amber-bd);color:var(--amber);padding:8px 16px;font-size:10px;font-family:var(--mono);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>⚠ Viewing demo data. Login to access the full database.</span>
+      <button class="btn btn-sm btn-edit" onclick="showLogin()">Login</button>
+    </div>`:''}
     <div class="dh">
       <div>
         <div class="dt">${esc(cust.name)}</div>
         <div class="dm">${cust.circuits.length} circuit${cust.circuits.length!==1?'s':''} · ${carriers.join(', ')||'—'}</div>
       </div>
       <div class="btns">
-        <button class="btn b-ok btn-add" onclick="showAddDLRModal('${esc2(cust.name)}')">+ Add DLR</button>
+        ${isAdmin()?`<button class="btn b-ok btn-add" onclick="showAddDLRModal('${esc2(cust.name)}')">+ Add DLR</button>
         <button class="btn btn-edit" onclick="showEditCustModal('${esc2(cust.name)}')">✎ Rename</button>
-        <button class="btn btn-del" onclick="deleteCust('${esc2(cust.name)}')">✕ Delete</button>
+        <button class="btn btn-del" onclick="deleteCust('${esc2(cust.name)}')">✕ Delete</button>`:''}
       </div>
     </div>
     ${active.length?`<div class="a-sec">Active Circuits (${active.length})</div>
@@ -716,9 +725,9 @@ function renderDLR(mn,cust,circ,idx){
       </div>`:''}
     <div class="div"></div>
     <div class="btns">
-      <button class="btn btn-edit" onclick="showEditDLRModal('${esc2(cust.name)}',${idx})">✎ Edit DLR</button>
+      ${isAdmin()?`<button class="btn btn-edit" onclick="showEditDLRModal('${esc2(cust.name)}',${idx})">✎ Edit DLR</button>
       <button class="btn btn-dc" onclick="toggleDecom('${esc2(cust.name)}',${idx})">${isDc?'↑ Mark Active':'↓ Mark DECOM'}</button>
-      <button class="btn btn-del" onclick="deleteDLR('${esc2(cust.name)}',${idx})">✕ Delete DLR</button>
+      <button class="btn btn-del" onclick="deleteDLR('${esc2(cust.name)}',${idx})">✕ Delete DLR</button>`:''}
     </div>
   </div>`;
 }
@@ -1207,15 +1216,17 @@ function toast(msg,type='info'){
   tr.innerHTML=`<div class="toast t-${type}">${msg}</div>`;
   _toastT=setTimeout(()=>tr.innerHTML='',2800);
 }
+let _confirmCb=null;
 function confirmAction(msg,cb){
   const existing=document.querySelector('.confirm-box');
   if(existing){existing.remove();}
+  _confirmCb=cb;
   const box=document.createElement('div');
   box.className='confirm-box';
   box.innerHTML=`<div class="confirm-msg">⚠ ${esc(msg)}</div>
     <div class="btns">
-      <button class="mbtn mb-del" onclick="this.closest('.confirm-box').remove();(${cb.toString()})()">Confirm</button>
-      <button class="mbtn mb-cancel" onclick="this.closest('.confirm-box').remove()">Cancel</button>
+      <button class="mbtn mb-del" onclick="const f=_confirmCb;_confirmCb=null;this.closest('.confirm-box').remove();if(f)f()">Confirm</button>
+      <button class="mbtn mb-cancel" onclick="_confirmCb=null;this.closest('.confirm-box').remove()">Cancel</button>
     </div>`;
   // Insert into modal if open, else append to mn
   const mo=document.querySelector('.modal-body')||document.getElementById('mn');
