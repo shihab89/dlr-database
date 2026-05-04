@@ -296,16 +296,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 
 /* MOBILE */
 @media(max-width:680px){
-  :root{--sb:85vw;--hdr:48px;--nav:36px}
-  .hdr-stats{display:none}
+  :root{--sb:100vw;--hdr:48px;--nav:36px}
   .hdr-title{font-size:12px}
-  .sb{position:fixed;top:calc(var(--hdr)+var(--nav));left:0;bottom:0;
-    transform:translateX(-100%);z-index:240;transition:transform .25s ease}
-  .sb.open{transform:translateX(0)}
-  .sb-overlay{display:none}
-  .sb-overlay.open{display:block}
-  .mn{width:100%}
-  .mob-toggle{display:flex}
   .a-grid{grid-template-columns:1fr 1fr}
   .info-g{grid-template-columns:1fr 1fr}
   .cable-row{grid-template-columns:1fr;gap:2px}
@@ -316,9 +308,30 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
   .modal{max-height:85vh}
   .btns{gap:4px}
   .btn{padding:5px 9px;font-size:9px}
+
+  /* List-as-home pattern */
+  .app{position:relative;overflow:hidden}
+  .sb{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;
+    transform:translateX(0);transition:transform .22s ease;z-index:10}
+  .mn{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;
+    transform:translateX(100%);transition:transform .22s ease;z-index:20;
+    background:var(--bg)}
+  body.show-detail .sb{transform:translateX(-30%)}
+  body.show-detail .mn{transform:translateX(0)}
+  .sb-overlay{display:none!important}
+  .mob-toggle{display:none!important}
+
+  /* Mobile back button injected into detail panel */
+  .mob-back{display:flex;align-items:center;gap:6px;padding:10px 14px;
+    background:var(--bg1);border-bottom:1px solid var(--border);
+    color:var(--accent);font-size:11px;font-family:var(--mono);
+    cursor:pointer;width:100%;border:none;border-bottom:1px solid var(--border);
+    text-align:left}
+  .mob-back:active{background:var(--bg3)}
 }
 @media(min-width:681px){
   .mob-toggle{display:none!important}
+  .mob-back{display:none!important}
 }
 
 /* DECOM overlay on circuit */
@@ -391,7 +404,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
   </div>
 </div>
 
-<button class="mob-toggle" onclick="toggleSB()">☰</button>
+<button class="mob-toggle" onclick="toggleSB()" style="display:none!important">☰</button>
 <div id="modal-root"></div>
 <div id="toast-root"></div>
 
@@ -571,6 +584,7 @@ function switchView(v){
   document.getElementById('srch').value='';
   document.getElementById('tab-c').classList.toggle('on',v==='customer');
   document.getElementById('tab-r').classList.toggle('on',v==='rack');
+  document.body.classList.remove('show-detail');
   render();closeSB();
 }
 
@@ -642,15 +656,24 @@ function renderMN(){
   if(view==='customer'){
     if(!selC){mn.innerHTML=`<div class="empty"><div class="empty-ico">◈</div><div class="empty-txt">select a customer</div></div>`;return;}
     const cust=DB.customers.find(c=>c.name===selC);
-    if(!cust){mn.innerHTML=`<div class="empty"><div class="empty-ico">?</div><div class="empty-txt">not found</div></div>`;return;}
+    if(!cust){mn.innerHTML=mobBackHTML()+`<div class="empty"><div class="empty-ico">?</div><div class="empty-txt">not found</div></div>`;return;}
     if(selCirc!==null) {renderDLR(mn,cust,cust.circuits[selCirc],selCirc);return;}
     renderCustMain(mn,cust);
   } else {
     if(!selR){mn.innerHTML=`<div class="empty"><div class="empty-ico">◈</div><div class="empty-txt">select a rack</div></div>`;return;}
     const rack=DB.racks.find(r=>r.id===selR);
-    if(!rack){mn.innerHTML=`<div class="empty"><div class="empty-ico">?</div><div class="empty-txt">rack not found</div></div>`;return;}
+    if(!rack){mn.innerHTML=mobBackHTML()+`<div class="empty"><div class="empty-ico">?</div><div class="empty-txt">rack not found</div></div>`;return;}
     renderRack(mn,rack);
   }
+}
+
+function mobBackHTML(){
+  return `<button class="mob-back" onclick="mobBack()">← Back to ${view==='customer'?'customers':'racks'}</button>`;
+}
+
+function mobBack(){
+  document.body.classList.remove('show-detail');
+  // Don't clear selection — user might want to come back
 }
 
 /* ═══════════════════════════════════════════
@@ -660,7 +683,7 @@ function renderCustMain(mn,cust){
   const active=cust.circuits.map((c,i)=>({...c,_i:i})).filter(c=>c.status==='active');
   const decom=cust.circuits.map((c,i)=>({...c,_i:i})).filter(c=>c.status==='decom');
   const carriers=[...new Set(cust.circuits.map(c=>c.carrier).filter(Boolean))];
-  mn.innerHTML=`
+  mn.innerHTML=mobBackHTML()+`
     <div class="dh">
       <div>
         <div class="dt">${esc(cust.name)}</div>
@@ -699,7 +722,7 @@ function renderDLR(mn,cust,circ,idx){
   if(!circ){selCirc=null;renderMN();return;}
   const isDc=circ.status==='decom';
   function llc(v){if(!v)return'';const n=parseFloat(v);return n>=-2?'ll-ok':n>=-3.5?'ll-warn':'ll-bad';}
-  mn.innerHTML=`<div class="panel">
+  mn.innerHTML=mobBackHTML()+`<div class="panel">
     <button class="pbk" onclick="selCirc=null;renderMN()">← ${esc(cust.name)}</button>
     <div class="p-title">
       A#${esc(circ.asset)}
@@ -793,7 +816,7 @@ function renderRack(mn,rack){
     }
   }
 
-  mn.innerHTML=`<div class="rv">
+  mn.innerHTML=mobBackHTML()+`<div class="rv">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div>
         <div class="r-title">${esc(rack.id)}</div>
@@ -819,8 +842,8 @@ function renderRack(mn,rack){
 /* ═══════════════════════════════════════════
    SELECTORS
 ═══════════════════════════════════════════ */
-function pickCustomer(name){selC=name;selCirc=null;renderSB();renderMN();closeSB();}
-function pickRack(id){selR=id;selP=null;renderSB();renderMN();closeSB();}
+function pickCustomer(name){selC=name;selCirc=null;document.body.classList.add('show-detail');renderSB();renderMN();closeSB();}
+function pickRack(id){selR=id;selP=null;document.body.classList.add('show-detail');renderSB();renderMN();closeSB();}
 function pickPort(slot,port){
   const key=slot+'|'+port;
   selP=selP===key?null:key;
